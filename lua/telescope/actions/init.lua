@@ -983,6 +983,22 @@ actions.complete_tag = function(prompt_bufnr)
   vim.fn.complete(col - #line, filtered_tags)
 end
 
+--- Insert a newline at the cursor, growing the prompt by a row.<br>
+--- Only useful with the `multi_line_prompt` option, where the prompt rows are
+--- joined with newlines into one query. This action is not mapped by default:
+--- `<CR>` stays bound to selection, so bind this to e.g. `<S-CR>` or `<C-o>`.
+---@param prompt_bufnr number: The prompt bufnr
+actions.insert_newline = function(prompt_bufnr)
+  local current_picker = action_state.get_current_picker(prompt_bufnr)
+  if not current_picker or not current_picker.multi_line_prompt then
+    return
+  end
+
+  local row, col = unpack(vim.api.nvim_win_get_cursor(current_picker.prompt_win))
+  vim.api.nvim_buf_set_text(prompt_bufnr, row - 1, col, row - 1, col, { "", "" })
+  vim.api.nvim_win_set_cursor(current_picker.prompt_win, { row + 1, 0 })
+end
+
 --- Cycle to the next search prompt in the history
 ---@param prompt_bufnr number: The prompt bufnr
 actions.cycle_history_next = function(prompt_bufnr)

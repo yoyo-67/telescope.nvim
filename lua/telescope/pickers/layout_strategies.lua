@@ -84,6 +84,16 @@ local calc_size_and_spacing = function(cur_size, max_size, bs, w_num, b_num, s_n
 end
 
 local layout_strategies = {}
+-- Rows the prompt needs. Pickers with `multi_line_prompt` grow their prompt to
+-- fit; anything else (and any caller passing something that is not a picker)
+-- gets the single row layouts have always used.
+local function prompt_height(self)
+  if type(self) == "table" and type(self._prompt_height) == "function" then
+    return self:_prompt_height()
+  end
+  return 1
+end
+
 layout_strategies._configurations = {}
 
 --@param strategy_config table: table with keys for each option for a strategy
@@ -343,7 +353,7 @@ layout_strategies.horizontal = make_documented_layout(
     -- Cap over/undersized height
     height, h_space = calc_size_and_spacing(height, max_lines, bs, 2, 4, 1)
 
-    prompt.height = 1
+    prompt.height = prompt_height(self)
     results.height = height - prompt.height - h_space
 
     if self.previewer then
@@ -463,7 +473,7 @@ layout_strategies.center = make_documented_layout(
     -- Cap over/undersized height
     height, h_space = calc_size_and_spacing(height, max_lines, bs, 2, 3, 0)
 
-    prompt.height = 1
+    prompt.height = prompt_height(self)
     results.height = height - prompt.height - h_space
 
     local topline = math.floor((max_lines / 2) - ((results.height + (2 * bs)) / 2) + 1)
@@ -579,7 +589,7 @@ layout_strategies.cursor = make_documented_layout(
     -- Cap over/undersized height
     height, h_space = calc_size_and_spacing(height, max_lines, bs, 2, 3, 0)
 
-    prompt.height = 1
+    prompt.height = prompt_height(self)
     results.height = height - prompt.height - h_space
     preview.height = height - 2 * bs
 
@@ -708,7 +718,7 @@ layout_strategies.vertical = make_documented_layout(
 
       preview.height = 0
     end
-    prompt.height = 1
+    prompt.height = prompt_height(self)
     results.height = height - preview.height - prompt.height - h_space
 
     local width_padding = math.floor((max_columns - width) / 2) + bs + 1
@@ -813,7 +823,7 @@ layout_strategies.current_buffer = make_documented_layout("current_buffer", {
   -- Height
   local height_padding = (1 + bs) -- TODO(l-kershaw): make this configurable
 
-  prompt.height = 1
+  prompt.height = prompt_height(self)
   if self.previewer then
     results.height = 10 -- TODO(l-kershaw): make this configurable
     preview.height = window_height - results.height - prompt.height - 2 * (1 + bs) - 2 * height_padding
@@ -875,7 +885,7 @@ layout_strategies.bottom_pane = make_documented_layout(
     height, _ = calc_size_and_spacing(height, max_lines, bs, 2, 3, 0)
 
     -- Height
-    prompt.height = 1
+    prompt.height = prompt_height(self)
     results.height = height - prompt.height - (2 * bs)
     preview.height = results.height - bs
 

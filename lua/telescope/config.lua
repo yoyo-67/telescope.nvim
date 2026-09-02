@@ -227,6 +227,31 @@ append(
 )
 
 append(
+  "multi_line_prompt",
+  false,
+  [[
+  Let the prompt hold more than one line. Every row of the prompt is part of
+  the query and the rows are joined with newlines, so a finder can search for
+  text that spans lines (e.g. `rg -U`). The prompt window grows to fit its
+  content, up to `max_prompt_height`.
+
+  Note: the prompt is a plain scratch buffer instead of a |prompt-buffer| when
+  this is enabled, because a prompt buffer only allows editing its last line.
+
+  Default: false]]
+)
+
+append(
+  "max_prompt_height",
+  5,
+  [[
+  Maximum rows the prompt window grows to when `multi_line_prompt` is enabled.
+  Longer queries scroll inside the prompt window.
+
+  Default: 5]]
+)
+
+append(
   "prompt_prefix",
   "> ",
   [[

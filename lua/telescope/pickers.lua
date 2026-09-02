@@ -72,6 +72,8 @@ function Picker:new(opts)
     preview_title = opts.preview_title,
 
     prompt_prefix = vim.F.if_nil(opts.prompt_prefix, config.values.prompt_prefix),
+    multi_line_prompt = vim.F.if_nil(opts.multi_line_prompt, config.values.multi_line_prompt),
+    max_prompt_height = vim.F.if_nil(opts.max_prompt_height, config.values.max_prompt_height),
     wrap_results = vim.F.if_nil(opts.wrap_results, config.values.wrap_results),
     selection_caret = vim.F.if_nil(opts.selection_caret, config.values.selection_caret),
     entry_prefix = vim.F.if_nil(opts.entry_prefix, config.values.entry_prefix),
@@ -408,8 +410,17 @@ function Picker:find()
 
   -- Prompt prefix
   local prompt_prefix = self.prompt_prefix
-  a.nvim_buf_set_option(prompt_bufnr, "buftype", "prompt")
-  vim.fn.prompt_setprompt(prompt_bufnr, prompt_prefix)
+  if self.multi_line_prompt then
+    -- A |prompt-buffer| only allows editing its last line, which rules it out for
+    -- a prompt spanning several lines. Plain scratch buffer instead, and the
+    -- prefix becomes inline virtual text rather than buffer text: without a
+    -- prompt buffer nothing stops a paste or a `dd` from eating a real prefix,
+    -- and then it lands in the query.
+    a.nvim_buf_set_option(prompt_bufnr, "buftype", "nofile")
+  else
+    a.nvim_buf_set_option(prompt_bufnr, "buftype", "prompt")
+    vim.fn.prompt_setprompt(prompt_bufnr, prompt_prefix)
+  end
   self.prompt_prefix = prompt_prefix
   self:_reset_prefix_color()
 
@@ -512,6 +523,12 @@ function Picker:find()
   -- Register attach
   vim.api.nvim_buf_attach(prompt_bufnr, false, {
     on_lines = function(...)
+      if self.multi_line_prompt then
+        -- Window changes are not allowed from an on_lines callback.
+        vim.schedule(function()
+          self:_sync_prompt_height()
+        end)
+      end
       if self._finder_attached then
         find_id = self:_next_find_id()
 
@@ -866,7 +883,24 @@ end
 function Picker:_reset_prefix_color(hl_group)
   self._current_prefix_hl_group = hl_group or nil
 
-  if self.prompt_prefix ~= "" and a.nvim_buf_is_valid(self.prompt_bufnr) then
+  if not a.nvim_buf_is_valid(self.prompt_bufnr) then
+    return
+  end
+
+  if self.multi_line_prompt then
+    -- The prefix is not in the buffer, so draw it in front of the first row.
+    a.nvim_buf_clear_namespace(self.prompt_bufnr, ns_telescope_prompt_prefix, 0, -1)
+    if self.prompt_prefix ~= "" then
+      a.nvim_buf_set_extmark(self.prompt_bufnr, ns_telescope_prompt_prefix, 0, 0, {
+        virt_text = { { self.prompt_prefix, self._current_prefix_hl_group or "TelescopePromptPrefix" } },
+        virt_text_pos = "inline",
+        right_gravity = false,
+      })
+    end
+    return
+  end
+
+  if self.prompt_prefix ~= "" then
     vim.api.nvim_buf_add_highlight(
       self.prompt_bufnr,
       ns_telescope_prompt_prefix,
@@ -889,6 +923,12 @@ function Picker:change_prompt_prefix(new_prefix, hl_group)
     return
   end
 
+  if self.multi_line_prompt then
+    self.prompt_prefix = new_prefix
+    self:_reset_prefix_color(hl_group)
+    return
+  end
+
   if new_prefix ~= "" then
     vim.fn.prompt_setprompt(self.prompt_bufnr, new_prefix)
   else
@@ -902,12 +942,14 @@ end
 --- Reset the prompt to the provided `text`
 ---@param text string
 function Picker:reset_prompt(text)
-  local prompt_text = self.prompt_prefix .. (text or "")
-  vim.api.nvim_buf_set_lines(self.prompt_bufnr, 0, -1, false, { prompt_text })
+  local prompt_text = (self.multi_line_prompt and "" or self.prompt_prefix) .. (text or "")
+  local lines = self.multi_line_prompt and vim.split(prompt_text, "\n", { plain = true }) or { prompt_text }
+  vim.api.nvim_buf_set_lines(self.prompt_bufnr, 0, -1, false, lines)
   self:_reset_prefix_color(self._current_prefix_hl_group)
+  self:_sync_prompt_height()
 
   if text then
-    vim.api.nvim_win_set_cursor(self.prompt_win, { 1, #prompt_text })
+    vim.api.nvim_win_set_cursor(self.prompt_win, { #lines, #lines[#lines] })
   end
 end
 
@@ -1516,11 +1558,47 @@ function pickers.on_resize_window(prompt_bufnr)
 end
 
 --- Get the prompt text without the prompt prefix.
+--- With `multi_line_prompt`, every row of the prompt is part of the query and the
+--- rows are joined with newlines.
 function Picker:_get_prompt()
+  if self.multi_line_prompt then
+    -- The prefix is virtual text, so every byte in the buffer is query.
+    return table.concat(vim.api.nvim_buf_get_lines(self.prompt_bufnr, 0, -1, false), "\n")
+  end
+
   local cursor_line = vim.api.nvim_win_get_cursor(self.prompt_win)[1] - 1
   return vim.api
     .nvim_buf_get_lines(self.prompt_bufnr, cursor_line, cursor_line + 1, false)[1]
     :sub(#self.prompt_prefix + 1)
+end
+
+--- Rows the prompt window needs: one, or the prompt's line count capped by
+--- `max_prompt_height`. Layout strategies read this instead of hardcoding 1.
+function Picker:_prompt_height()
+  if not self.multi_line_prompt then
+    return 1
+  end
+  if not self.prompt_bufnr or not vim.api.nvim_buf_is_valid(self.prompt_bufnr) then
+    return 1
+  end
+  local lines = vim.api.nvim_buf_line_count(self.prompt_bufnr)
+  return math.max(1, math.min(lines, self.max_prompt_height))
+end
+
+--- Grow or shrink the prompt window to fit its content, taking the rows from the
+--- results window. No-op unless the row count actually changed.
+function Picker:_sync_prompt_height()
+  if not self.multi_line_prompt or self.closed then
+    return
+  end
+  local height = self:_prompt_height()
+  if height == self.__prompt_height then
+    return
+  end
+  self.__prompt_height = height
+  if self.prompt_win and vim.api.nvim_win_is_valid(self.prompt_win) then
+    self:full_layout_update()
+  end
 end
 
 function Picker:_reset_highlights()
