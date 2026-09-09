@@ -1605,6 +1605,14 @@ function Picker:_sync_prompt_height()
   if not self.multi_line_prompt or self.closed then
     return
   end
+  -- A layout update reads the picker's window handles back out of the global
+  -- state, and `find` applies a `default_text` prompt before it registers them
+  -- there -- `recalculate_layout` would then store the layout under a nil key.
+  -- Bail without recording the height, so the first sync after registration
+  -- still applies it.
+  if not state.get_status(self.prompt_bufnr).prompt_win then
+    return
+  end
   local height = self:_prompt_height()
   if height == self.__prompt_height then
     return
