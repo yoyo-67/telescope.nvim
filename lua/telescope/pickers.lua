@@ -22,6 +22,7 @@ local p_scroller = require "telescope.pickers.scroller"
 local p_window = require "telescope.pickers.window"
 
 local EntryManager = require "telescope.entry_manager"
+local result_cap = require "telescope.pickers.result_cap"
 local MultiSelect = require "telescope.pickers.multi"
 
 local truncate = require("plenary.strings").truncate
@@ -74,6 +75,7 @@ function Picker:new(opts)
     prompt_prefix = vim.F.if_nil(opts.prompt_prefix, config.values.prompt_prefix),
     multi_line_prompt = vim.F.if_nil(opts.multi_line_prompt, config.values.multi_line_prompt),
     max_prompt_height = vim.F.if_nil(opts.max_prompt_height, config.values.max_prompt_height),
+    max_processed_results = vim.F.if_nil(opts.max_processed_results, config.values.max_processed_results),
     wrap_results = vim.F.if_nil(opts.wrap_results, config.values.wrap_results),
     selection_caret = vim.F.if_nil(opts.selection_caret, config.values.selection_caret),
     entry_prefix = vim.F.if_nil(opts.entry_prefix, config.values.entry_prefix),
@@ -500,6 +502,18 @@ function Picker:find()
         self:_reset_highlights()
         local process_result = self:get_result_processor(find_id, prompt, debounced_status)
         local process_complete = self:get_result_completor(self.results_bufnr, find_id, prompt, status_updater)
+
+        -- Stop a runaway finder instead of scoring every line it can produce.
+        -- Closing the job is deferred: we are inside the finder's own read loop
+        -- here, and it tears its pipes down itself once we return.
+        process_result, process_complete = result_cap.wrap(process_result, process_complete, self.max_processed_results, function()
+          local finder = self.finder
+          if type(finder) == "table" and type(finder.close) == "function" then
+            vim.schedule(function()
+              finder.close()
+            end)
+          end
+        end)
 
         local ok, msg = pcall(function()
           self.finder(prompt, process_result, process_complete)

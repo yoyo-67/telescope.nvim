@@ -252,6 +252,23 @@ append(
 )
 
 append(
+  "max_processed_results",
+  nil,
+  [[
+  Maximum number of results a single search feeds into the picker. Reaching it
+  ends the search: the finder is stopped and the picker reports as completed.
+
+  Telescope scores and stores every line a finder produces, so an unfiltered
+  grep over a large tree can stall the editor in Lua long after the command
+  itself has finished. Capping here keeps the finder a single, killable
+  process, which a `| head -n N` bolted onto `vimgrep_arguments` does not: the
+  shell is killed, while the grep and the `head` reading it survive as orphans
+  that keep scanning.
+
+  Default: nil (no cap)]]
+)
+
+append(
   "prompt_prefix",
   "> ",
   [[
