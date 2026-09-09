@@ -1561,6 +1561,10 @@ function pickers.on_close_prompt(prompt_bufnr)
     event = "BufLeave",
     buffer = prompt_bufnr,
   }
+  if picker:_should_stop_insert(vim.fn.mode()) then
+    vim.cmd "stopinsert"
+  end
+
   picker.close_windows(status)
 end
 
@@ -1584,6 +1588,19 @@ function Picker:_get_prompt()
   return vim.api
     .nvim_buf_get_lines(self.prompt_bufnr, cursor_line, cursor_line + 1, false)[1]
     :sub(#self.prompt_prefix + 1)
+end
+
+--- Whether closing this picker has to leave insert mode itself.
+---
+--- A |prompt-buffer| drops out of insert mode when its window goes away, so a
+--- normal picker lands back in normal mode on its own. The scratch buffer
+--- `multi_line_prompt` uses does not, and the mode would leak into whatever
+--- buffer the closing action opened. A picker opened from insert mode is meant
+--- to end there, so it is left alone.
+---@param mode string: the current mode, as |mode()| reports it
+---@return boolean
+function Picker:_should_stop_insert(mode)
+  return self.multi_line_prompt == true and self._original_mode ~= "i" and mode == "i"
 end
 
 --- Rows the prompt window needs: one, or the prompt's line count capped by
